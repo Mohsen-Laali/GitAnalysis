@@ -382,4 +382,35 @@ class StatisticalAnalyzer:
                 row['h'] = d.seconds // 3600
                 writer.writerow(row)
 
+    def generate_change_on_not_fixed_files(self, file_address_all_changed, file_address_all_fixed,
+                                           result_file_address):
+
+        keep_dictionary = None
+        except_dictionary = None
+        field_name_file = 'path'
+        set_all_fixed_files = set()
+
+        fixed_iter_csv = self.iter_csv(file_name=file_address_all_fixed,
+                                       keep_dictionary=keep_dictionary,
+                                       except_dictionary=except_dictionary)
+        for row in fixed_iter_csv:
+            set_all_fixed_files.add(row[field_name_file].strip())
+
+        all_changed_iter_csv = self.iter_csv(file_name=file_address_all_changed,
+                                             keep_dictionary=keep_dictionary,
+                                             except_dictionary=except_dictionary)
+
+        with open(result_file_address, self.write_mode) as csv_file:
+            row = all_changed_iter_csv.next()
+            header_names = list(row.iterkeys())
+            writer = csv.DictWriter(csv_file, header_names)
+            writer.writeheader()
+            if row[field_name_file].strip() in set_all_fixed_files:
+                writer.writerow(row)
+            for row in all_changed_iter_csv:
+                if row[field_name_file].strip() not in set_all_fixed_files:
+                    writer.writerow(row)
+
+
+
 
