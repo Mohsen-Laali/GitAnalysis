@@ -1,0 +1,5 @@
+GitPython==2.1.11
+pandas==0.24.2
+pyarrow==0.12.1
+Pygments==2.3.0
+unidiff==0.5.5
