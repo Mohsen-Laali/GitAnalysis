@@ -39,7 +39,7 @@ class CommitSpec:
         if not diff_txt:
             raise GitDiffEmptyException(self.commit_hex_sha)
 
-        patches = PatchSet(StringIO(diff_txt), encoding='utf-8')
+        patches = PatchSet(StringIO(diff_txt.encode('utf-8')), encoding='utf-8')
 
         return patches
 
@@ -59,7 +59,7 @@ class CommitSpec:
                 analyze_hex_sha = self.commit_hex_sha
 
             elif analyze_part == 'deleted':
-                analyze_line_number_list = [line.source_source_line_no for hunk in patched_file
+                analyze_line_number_list = [line.source_line_no for hunk in patched_file
                                             for line in hunk if line.is_removed and line.value.strip() != '']
                 analyze_hex_sha = self.pre_commit_hex_sha
 
