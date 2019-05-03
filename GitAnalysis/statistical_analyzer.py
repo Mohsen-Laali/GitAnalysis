@@ -3,6 +3,8 @@ from operator import itemgetter
 from functools import partial
 from operator import and_, or_
 from datetime import datetime, date
+import sys
+maxInt = sys.maxsize
 
 
 def co_routine(func):
@@ -28,6 +30,7 @@ class StatisticalAnalyzer:
     def iter_csv(self, file_name, keep_dictionary=None, except_dictionary=None):
         with open(file_name, self.read_mode) as csv_file_handler:
             reader = csv.DictReader(csv_file_handler)
+            csv.field_size_limit(maxInt)
 
             def keep_except_row(r, f_dic, compare_func, and_or):
                 if f_dic:
