@@ -27,7 +27,11 @@ class CommitSpec:
         if self.commit.parents:
             # Git ignore white space at the end of line, empty lines
             diff_txt = self.commit.repo.git.diff(self.pre_commit_hex_sha, self.commit_hex_sha,
-                                                 ignore_blank_lines=True, ignore_space_at_eol=True, **kwargs)
+                                                 ignore_blank_lines=True, ignore_space_at_eol=True,
+                                                 diff_filter='crtux', ignore_submodules=True,
+                                                 **kwargs)
+            # ignore blank lines, ignore space at end of line, ignore sub-modules and filter copied, rename, type change
+            # , unmerged and unknown. 
         else:
             raise NoParentsCommitException(self.commit_hex_sha)
 

@@ -196,8 +196,8 @@ class StatisticalAnalyzer:
 
     def write_counted_items(self, counted, result_file_address):
         with open(result_file_address, self.write_mode) as csv_file:
-            column_names_number = sorted(map(lambda k: (k, len(counted[k])), counted.iterkeys()),
-                                         key=itemgetter(1), reverse=True)
+            column_names_number = sorted(map(lambda k: (k, len(counted[k])), counted.iterkeys()), key=itemgetter(1),
+                                         reverse=True)
 
             header_names = []
             value_label = '_value'

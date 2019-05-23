@@ -1,4 +1,5 @@
 from GitAnalysis.commit import GitDiffEmptyException, NoParentsCommitException
+from git.exc import GitCommandError # TODO remember to remove this line
 from GitAnalysis import IO
 from GitAnalysis import CommitSpec
 
@@ -174,6 +175,11 @@ class GitAnalysis:
             except NoParentsCommitException as err:
                 print err
                 continue
+            # TODO remember to resolve this issue
+            # except GitCommandError as err:
+            #     print err
+            #     continue
+            # TODO end of section
 
             for tokens_contents in line_tokens_list:
 
