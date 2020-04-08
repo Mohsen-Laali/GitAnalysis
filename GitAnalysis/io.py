@@ -51,6 +51,7 @@ class IO:
                 file_handler.readline()
                 for line in file_handler:
                     split_line = line.split(',')
+                    # skip if the filter attribute is not matched(check if the value is not inside the dictionary)
                     if tuple_keep_filter_attribute and \
                             invert_condition((tuple_keep_filter_attribute[1]
                                              not in split_line[int(tuple_keep_filter_attribute[0])]), keep):
@@ -64,10 +65,11 @@ class IO:
                 for row_dictionary in cvs_reader:
                     # row_dictionary = dict(map(lambda (k, v): (k, unicode(v, 'utf-8')), row_dictionary.iteritems()))
                     # row_dictionary = dict(map(lambda (k, v): (k, v.decode('utf-8')), row_dictionary.iteritems()))
-                    # ignore none value
+                    # ignore field without value of filter attribute
                     if ignore_field_without_value and tuple_keep_filter_attribute \
                             and tuple_keep_filter_attribute[0] not in row_dictionary:
                         continue
+                    # skip if the filter attribute is not matched(check if the value is not inside the dictionary)
                     if tuple_keep_filter_attribute and tuple_keep_filter_attribute[0] in row_dictionary and\
                             invert_condition(tuple_keep_filter_attribute[1]
                                              not in row_dictionary[tuple_keep_filter_attribute[0]], keep):
@@ -80,10 +82,11 @@ class IO:
                 for json_txt in file_handler:
                     json_line = json.loads(json_txt, encoding='utf8')
                     json_line = {k: utf8_encode(v) for k, v in json_line.items()}
-                    # ignore none value
+                    # ignore field without value of filter attribute
                     if ignore_field_without_value and tuple_keep_filter_attribute \
                             and tuple_keep_filter_attribute[0] not in json_line:
                         continue
+                    # skip if the filter attribute is not matched(check if the value is not inside the dictionary)
                     if tuple_keep_filter_attribute and tuple_keep_filter_attribute[0] in json_line and \
                             invert_condition(tuple_keep_filter_attribute[1]
                                              not in json_line[tuple_keep_filter_attribute[0]], keep):

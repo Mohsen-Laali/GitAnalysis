@@ -31,7 +31,7 @@ class CommitSpec:
                                                  diff_filter='crtux', ignore_submodules=True,
                                                  **kwargs)
             # ignore blank lines, ignore space at end of line, ignore sub-modules and filter copied, rename, type change
-            # , unmerged and unknown. 
+            # , unmerged and unknown.
         else:
             raise NoParentsCommitException(self.commit_hex_sha)
 

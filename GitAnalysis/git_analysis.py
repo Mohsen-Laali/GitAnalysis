@@ -54,6 +54,7 @@ class GitAnalysis:
             del data_generator
             self.log("Finished writing on the parquet file")
 
+    # Start CSV writer
     def csv_writer(self, result_file_address, data_generator):
 
         try:
@@ -70,11 +71,11 @@ class GitAnalysis:
             del data_generator
             self.log("Finished writing on the csv file")
 
-    def choose_writing_format(self, result_file_address, data_generator, file_format):
-        if file_format == 'parquet':
+    def choose_writing_format(self, result_file_address, data_generator, output_format):
+        if output_format == 'parquet':
             self.parquet_writer(result_file_address=result_file_address, data_generator=data_generator,
                                 compression='gzip')
-        elif file_format == 'csv':
+        elif output_format == 'csv':
             self.csv_writer(result_file_address=result_file_address, data_generator=data_generator)
         else:
             self.log('Writing format is not supported, you can only use either of parquet or csv')
@@ -90,6 +91,9 @@ class GitAnalysis:
 
         def iterator(file_address, tuple_keep_attribute):
             set_of_fix_commits = set()
+            # built an iterator over fix commits
+            # Keep=True to keep the fix label
+            # if the filter attribute is not there ignore the line
             for git_hub_fix_commit in IO.read_issue_commits(file_address,
                                                             tuple_keep_filter_attribute=tuple_keep_attribute,
                                                             keep=True, ignore_field_without_value=True):
@@ -105,13 +109,15 @@ class GitAnalysis:
     def iter_commit_except_fix(self, fix_commits_file_address):
         iter_fix_commits = self.iter_fix_commits(fix_commits_file_address=fix_commits_file_address)
         list_fix_commit_sha = []
-        for fix_commit in iter_fix_commits:
-            list_fix_commit_sha.append(fix_commit.hexsha)
 
         def iterator(retrieve_other_commit_id_from_issue_tracker, tuple_keep_attribute,
                      consider_issues_without_labels_as_other):
+
             if retrieve_other_commit_id_from_issue_tracker:
                 set_of_other_commits = set()
+
+                # Read all commits except fix commits
+                # Keep=False to ignore the fix label
                 for git_hub_commit in IO.read_issue_commits(file_address=fix_commits_file_address,
                                                             tuple_keep_filter_attribute=tuple_keep_attribute,
                                                             keep=False,
@@ -124,6 +130,10 @@ class GitAnalysis:
                     commit = self.repository.commit(commit_id)
                     yield commit
             else:
+                # read fix commits
+                for fix_commit in iter_fix_commits:
+                    list_fix_commit_sha.append(fix_commit.hexsha)
+                # read all commits and check if they are not fix commits
                 for commit in self.repository.iter_commits():
                     if commit.hexsha not in list_fix_commit_sha:
                         yield commit
@@ -136,73 +146,78 @@ class GitAnalysis:
 
     # Start Content Analysis
 
-    def content_analysis_all_commits(self, result_file_address, analyze_part='deleted', file_format='parquet'):
+    def content_analysis_all_commits(self, result_file_address, analyze_part='deleted', output_format='parquet'):
         content_generator = self.content_analysis_generator(iter_commit=self.repository.iter_commits(),
                                                             analyze_part=analyze_part)
         self.choose_writing_format(result_file_address=result_file_address, data_generator=content_generator,
-                                   file_format=file_format)
+                                   output_format=output_format)
 
     def content_analysis_fix_commits(self, result_file_address, fix_commits_file_address, analyze_part='deleted',
-                                     file_format='parquet'):
+                                     output_format='parquet'):
         content_generator = self.content_analysis_generator(iter_commit=self.iter_fix_commits(
             fix_commits_file_address=fix_commits_file_address), analyze_part=analyze_part)
         self.choose_writing_format(result_file_address=result_file_address, data_generator=content_generator,
-                                   file_format=file_format)
+                                   output_format=output_format)
 
     def content_analysis_all_commits_except_fix_commits(self, result_file_address, fix_commits_file_address,
-                                                        analyze_part='deleted', file_format='parquet'):
+                                                        analyze_part='deleted', output_format='parquet'):
         content_generator = self.content_analysis_generator(iter_commit=self.iter_commit_except_fix(
             fix_commits_file_address=fix_commits_file_address), analyze_part=analyze_part)
 
         self.choose_writing_format(result_file_address=result_file_address, data_generator=content_generator,
-                                   file_format=file_format)
+                                   output_format=output_format)
 
-    def content_analysis_generator(self, iter_commit, analyze_part='deleted'):
+    def content_analysis_generator(self, iter_commit, analyze_part='deleted', flatten=False):
         field_names = ['line_number', 'hex_hash', 'lexer_name', 'code_line_number', 'file_name', 'token_content',
                        'token_type', 'line_content', 'number_of_tokens', 'number_of_changes']
         line_number, hex_hash, lexer_name, cod_line_number, file_name, token_content, token_type, \
-            line_content, number_of_tokens, number_of_changes = field_names
+        line_content, number_of_tokens, number_of_changes = field_names
         line_counter = 0
 
-        for commit in iter_commit:
-            commit_spec = CommitSpec(commit)
-            commit_hex_sha = commit_spec.commit_hex_sha
-            try:
-                line_tokens_list, number_of_changes_value = commit_spec.content_analyzer(analyze_part=analyze_part)
-            except GitDiffEmptyException as err:
-                print err
-                continue
-            except NoParentsCommitException as err:
-                print err
-                continue
-            # TODO remember to resolve this issue
-            # except GitCommandError as err:
-            #     print err
-            #     continue
-            # TODO end of section
+        def iter_commit_content_analyzer():
+            for a_commit in iter_commit:
+                a_commit_spec = CommitSpec(a_commit)
+                try:
+                    a_line_tokens_list, a_number_of_changes_value = a_commit_spec. \
+                        content_analyzer(analyze_part=analyze_part)
+                except GitDiffEmptyException as err:
+                    print err
+                    continue
+                except NoParentsCommitException as err:
+                    print err
+                    continue
+                yield a_line_tokens_list, a_commit_spec.commit_hex_sha, a_number_of_changes_value
 
-            for tokens_contents in line_tokens_list:
+        iter_content = iter_commit_content_analyzer()
 
-                cod_line_number_value, line_content_value, tokens, file_name_value, lexer_name_value = \
-                    tokens_contents
-                number_of_tokens_value = len(tokens)
-                for token in tokens:
-                    line_counter += 1
-                    dictionary_data = {
-                        line_number: line_counter,
-                        hex_hash: commit_hex_sha,
-                        lexer_name: lexer_name_value,
-                        cod_line_number: str(cod_line_number_value),
-                        file_name: file_name_value,
-                        token_content: token[2].encode('utf-8'),
-                        token_type: str(token[1]),
+        if flatten:
+            for line_tokens_list, commit_hex_sha, number_of_changes_value in iter_content:
+                pass
+        else:
+            for line_tokens_list, commit_hex_sha, number_of_changes_value in iter_content:
 
-                        line_content: line_content_value.encode('utf-8'),
-                        number_of_tokens: str(number_of_tokens_value),
-                        number_of_changes: str(number_of_changes_value)
-                    }
-                    self.log(dictionary_data)
-                    yield dictionary_data
+                for tokens_contents in line_tokens_list:
+
+                    cod_line_number_value, line_content_value, tokens, file_name_value, lexer_name_value = \
+                        tokens_contents
+                    number_of_tokens_value = len(tokens)
+                    for token in tokens:
+                        line_counter += 1
+                        dictionary_data = {
+                            line_number: line_counter,
+                            hex_hash: commit_hex_sha,
+                            lexer_name: lexer_name_value,
+                            cod_line_number: str(cod_line_number_value),
+                            file_name: file_name_value,
+                            token_content: token[2].encode('utf-8'),
+                            token_type: str(token[1]),
+
+                            line_content: line_content_value.encode('utf-8'),
+                            number_of_tokens: str(number_of_tokens_value),
+                            number_of_changes: str(number_of_changes_value)
+                        }
+                        self.log(dictionary_data)
+                        yield dictionary_data
 
     # End Content Analysis
 
@@ -231,16 +246,16 @@ class GitAnalysis:
 
         return iterator()
 
-    def time_analysis_deleted_lines_all_commits(self, result_file_address, file_format='parquet'):
+    def time_analysis_deleted_lines_all_commits(self, result_file_address, output_format='parquet'):
         time_analysis_generator = \
             self.time_analysis_deleted_lines_generator(iter_blame_detail=
                                                        self.iter_blame_detail_deleted_lines_fix_commits(
                                                            self.repository.iter_commits()))
         self.choose_writing_format(result_file_address=result_file_address, data_generator=time_analysis_generator,
-                                   file_format=file_format)
+                                   output_format=output_format)
 
     def time_analysis_deleted_lines_all_commit_except_fix_commits(self, result_file_address, fix_commits_file_address,
-                                                                  file_format='parquet'):
+                                                                  output_format='parquet'):
         time_analysis_generator = \
             self.time_analysis_deleted_lines_generator(iter_blame_detail=
                                                        self.iter_blame_detail_deleted_lines_fix_commits(
@@ -248,17 +263,17 @@ class GitAnalysis:
                                                                fix_commits_file_address=
                                                                fix_commits_file_address)))
         self.choose_writing_format(result_file_address=result_file_address, data_generator=time_analysis_generator,
-                                   file_format=file_format)
+                                   output_format=output_format)
 
     def time_analysis_deleted_lines_fix_commits(self, result_file_address, fix_commits_file_address,
-                                                file_format='parquet'):
+                                                output_format='parquet'):
         time_analysis_generator = \
             self.time_analysis_deleted_lines_generator(iter_blame_detail=
                                                        self.iter_blame_detail_deleted_lines_fix_commits(
                                                            self.iter_fix_commits(fix_commits_file_address=
                                                                                  fix_commits_file_address)))
         self.choose_writing_format(result_file_address=result_file_address, data_generator=time_analysis_generator,
-                                   file_format=file_format)
+                                   output_format=output_format)
 
     def time_analysis_deleted_lines_generator(self, iter_blame_detail):
         field_names = ['line_number', 'author', 'author_email', 'authored_date', 'authored_time_zone_offset',
@@ -287,23 +302,23 @@ class GitAnalysis:
     # Start Time Analysis Commits
 
     def time_analysis_all_commits_except_fix_commits(self, result_file_address, fix_commits_file_address,
-                                                     file_format='parquet'):
+                                                     output_format='parquet'):
         time_analysis_generator = \
             self.time_analysis_generator(self.iter_commit_except_fix(fix_commits_file_address))
         self.choose_writing_format(result_file_address=result_file_address, data_generator=time_analysis_generator,
-                                   file_format=file_format)
+                                   output_format=output_format)
 
-    def time_analysis_all_commits(self, result_file_address, file_format='parquet'):
+    def time_analysis_all_commits(self, result_file_address, output_format='parquet'):
         time_analysis_generator = \
             self.time_analysis_generator(self.repository.iter_commits())
         self.choose_writing_format(result_file_address=result_file_address, data_generator=time_analysis_generator,
-                                   file_format=file_format)
+                                   output_format=output_format)
 
-    def time_analysis_fix_commits(self, result_file_address, fix_commits_file_address, file_format='parquet'):
+    def time_analysis_fix_commits(self, result_file_address, fix_commits_file_address, output_format='parquet'):
         time_analysis_generator = \
             self.time_analysis_generator(self.iter_fix_commits(fix_commits_file_address))
         self.choose_writing_format(result_file_address=result_file_address, data_generator=time_analysis_generator,
-                                   file_format=file_format)
+                                   output_format=output_format)
 
     def time_analysis_generator(self, iter_commits):
         field_names = ['line_number', 'author', 'author_email', 'authored_date', 'authored_time_zone_offset']
@@ -351,16 +366,16 @@ class GitAnalysis:
                                                          set_limited_files=set_fix_commits_files)
 
     def count_change_all_commits_except_fix_commits(self, result_file_address, fix_commits_file_address,
-                                                    set_limited_files=None, file_format='parquet'):
+                                                    set_limited_files=None, output_format='parquet'):
         change_generator = self.count_change_generator(self.iter_commit_except_fix(fix_commits_file_address),
                                                        set_limited_files)
         self.choose_writing_format(result_file_address=result_file_address, data_generator=change_generator)
 
-    def count_change_fix_commits(self, result_file_address, fix_commits_file_address, file_format='parquet'):
+    def count_change_fix_commits(self, result_file_address, fix_commits_file_address, output_format='parquet'):
         change_generator = self.count_change_generator(self.iter_fix_commits(fix_commits_file_address))
         self.choose_writing_format(result_file_address=result_file_address, data_generator=change_generator)
 
-    def count_change_all_commits(self, result_file_address, set_limited_files=None, file_format='parquet'):
+    def count_change_all_commits(self, result_file_address, set_limited_files=None, output_format='parquet'):
         change_generator = self.count_change_generator(self.repository.iter_commits(), set_limited_files)
         self.choose_writing_format(result_file_address=result_file_address, data_generator=change_generator)
 
