@@ -1,0 +1,11 @@
+{"language_label":"java","repo_base_address":"../Sample_Git_Repository/Repos/Java_Repos/", "issue_base_address":"/home/mohsen/git/GitHub_Issues/Java_Repos", "output_folder":"/home/mohsen/git/GitAnalysis/output/User_Behavior","retrieve_other_commit_id_from_issue_tracker":true,"consider_issues_without_labels_as_other":true,"log_flag":true}
+{"repo_name":"elasticsearch","issue_file_name": "amended_elasticsearch_issues_2019_04_27.json","bug_label":">bug"}
+{"repo_name":"springframwork","issue_file_name": "amended_spring-framework_issues_2019_04_28.json","bug_label":"type: bug"}
+{"repo_name":"springboot","issue_file_name": "amended_spring-boot_issues_2019_04_29.json","bug_label":"type: bug"}
+{"repo_name":"bazel","issue_file_name": "amended_bazel_issues_2019_04_29.json","bug_label":"type: bug"}
+{"repo_name":"deeplearning4j","issue_file_name": "amended_deeplearning4j_issues_2019_04_29.json","bug_label":"Bug"}
+{"repo_name":"rxjava","issue_file_name": "amended_RxJava_issues_2019_04_29.json","bug_label":"Bug"}
+{"repo_name":"exoplayer","issue_file_name": "amended_ExoPlayer_issues_2019_04_29.json","bug_label":"bug"}
+{"repo_name":"realmjava","issue_file_name": "amended_realm-java_issues_2019_04_30.json","bug_label":"T:Bug"}
+{"repo_name":"shardingsphere","issue_file_name": "amended_incubator-shardingsphere_issues_2019_04_30.json","bug_label":"bug"}
+{"repo_name":"presto","issue_file_name": "amended_presto_issues_2019_04_30.json","bug_label":"bug"}

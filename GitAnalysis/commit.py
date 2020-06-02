@@ -1,9 +1,11 @@
 import os
+import time
+import copy
+
 from GitAnalysis.lexical_analyzer import LexicalAnalyzer
 from unidiff import PatchSet
 from cStringIO import StringIO
 from pygments.util import ClassNotFound
-# from unidiff import UnidiffParseError
 
 
 class GitDiffEmptyException(Exception):
@@ -79,6 +81,29 @@ class CommitSpec:
 
         return tokens_list, number_of_changes
 
+    def changed_files(self, affected_line=False):
+        changed_file_path = {} if affected_line else []
+        patch_set = self.pars_diff(diff_txt=self.diff_commit_pre_version())
+        for patched_file in patch_set:
+            if affected_line:
+                changed_file_path[patched_file.path] = {'added_line_number': [line.target_line_no
+                                                                              for hunk in patched_file
+                                                                              for line in hunk if
+                                                                              line.is_added and
+                                                                              line.value.strip() != ''],
+                                                        'deleted_line_number': [line.source_line_no
+                                                                                for hunk in patched_file
+                                                                                for line in hunk if
+                                                                                line.is_removed and
+                                                                                line.value.strip() != '']
+                                                        }
+
+            else:
+                changed_file_path.append(patched_file.path)
+
+        return changed_file_path
+
+    @property
     def blame_content(self):
         blame_details_dictionary = {}
         total_added = 0
@@ -119,8 +144,8 @@ class CommitSpec:
                     content = blame_commit_line[1]
                     blame_detail = blame_details_dictionary.get(blame_commit.hexsha, BlameDetail(
                         blame_commit=blame_commit, fix_commit_hex_sha=self.commit_hex_sha,
-                        total_added=total_added, total_deleted=total_deleted, file_path=file_path))
-                    blame_detail.line_number_content_list.append((deleted_line_number, content))
+                        total_added=total_added, total_deleted=total_deleted))
+                    blame_detail.add_content(file_path=file_path, line_number=line_number, content=content)
                     blame_details_dictionary[blame_commit.hexsha] = blame_detail
 
         return blame_details_dictionary.values()
@@ -128,29 +153,72 @@ class CommitSpec:
 
 class BlameDetail:
     def __init__(self, blame_commit, fix_commit_hex_sha,
-                 total_added, total_deleted, file_path):
+                 total_added, total_deleted):
         self.blame_commit = blame_commit
         self.fix_commit_hex_sha = fix_commit_hex_sha
         self.total_number_added = total_added
         self.total_number_deleted = total_deleted
-        self.file_path = file_path
-        self.line_number_content_list = []
+        self.dic_file_path__line_number_content = {}
 
     @property
     def number_of_related_lines(self):
-        return len(self.line_number_content_list)
+        return reduce(lambda a, b: a+b, map(lambda item: len(item),
+                                            self.dic_file_path__line_number_content.values()))
+
+    @property
+    def affected_file_paths(self):
+        return self.dic_file_path__line_number_content.keys()
+
+    def add_content(self, file_path, line_number, content):
+        list_line_number_content = self.dic_file_path__line_number_content.get(file_path, [])
+        list_line_number_content.append((line_number, content))
+        self.dic_file_path__line_number_content[file_path] = list_line_number_content
+
+    def get_dictionary_representation(self, flatted=True):
+        field_names = ['author', 'author_email', 'authored_date', 'authored_time_zone_offset',
+                       'number_of_related_deleted_lines', 'total_deleted_lines', 'total_added_lines',
+                       'fix_commit_sha', 'blame_commit_sha', 'file_paths', 'file_path__line_number_content']
+        author, author_email, authored_date, author_tz_offset, number_of_related_deleted_lines, \
+            total_deleted_lines, total_added_lines, fix_commit_sha, blame_commit_sha, file_path, \
+            file_path__line_number_content = field_names
+
+        dictionary_data = {
+                    author: self.blame_commit.author.name.encode('utf-8'),
+                    author_email: self.blame_commit.author.email.encode('utf-8'),
+                    authored_date: time.asctime(time.gmtime(self.blame_commit.authored_date)),
+                    author_tz_offset: str(time.gmtime(self.blame_commit.author_tz_offset).tm_hour) + ':' +
+                    str(time.gmtime(self.blame_commit.author_tz_offset).tm_min),
+                    number_of_related_deleted_lines: str(self.number_of_related_lines),
+                    total_deleted_lines: str(self.total_number_deleted),
+                    total_added_lines: str(self.total_number_added),
+                    fix_commit_sha: self.fix_commit_hex_sha,
+                    blame_commit_sha: self.blame_commit.hexsha
+        }
+        if flatted:
+            list_data = []
+            for path, modified_line_content in self.dic_file_path__line_number_content.iteritems():
+                data = copy.deepcopy(dictionary_data)
+                data[number_of_related_deleted_lines] = len(modified_line_content)
+                data[file_path] = path
+                list_data.append(data)
+            return list_data
+        else:
+            dictionary_data[file_path__line_number_content] = self.dic_file_path__line_number_content
+            return dictionary_data
 
     def __str__(self):
-        str_rep = '------------' + os.linesep
+        str_rep = '----------' + os.linesep
         str_rep += 'Blame commit hex sha: ' + self.blame_commit.hexsha + os.linesep
         str_rep += 'Fix commit hex sha: ' + self.fix_commit_hex_sha + os.linesep
-        str_rep += 'File path: ' + self.file_path + os.linesep
         str_rep += 'Total number of added: ' + str(self.total_number_added) + os.linesep
         str_rep += 'Total number of deleted: ' + str(self.total_number_deleted) + os.linesep
         str_rep += 'Content:' + os.linesep
-        for line_number_content in self.line_number_content_list:
-            str_rep += str(line_number_content[0]) + ': ' + line_number_content[1] + os.linesep
-        str_rep += '------------'
+        for file_path, list_line_number_content in self.dic_file_path__line_number_content.iteritems():
+            str_rep += '**********'
+            str_rep += 'File path: ' + file_path + os.linesep
+            for line_number_content in list_line_number_content:
+                str_rep += str(line_number_content[0]) + ': ' + line_number_content[1] + os.linesep
+        str_rep += '----------'
         return str_rep
 
 

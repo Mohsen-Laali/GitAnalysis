@@ -1,5 +1,5 @@
 from GitAnalysis.commit import GitDiffEmptyException, NoParentsCommitException
-from git.exc import GitCommandError # TODO remember to remove this line
+from git.exc import GitCommandError  # TODO remember to remove this line
 from GitAnalysis import IO
 from GitAnalysis import CommitSpec
 
@@ -7,6 +7,7 @@ import time
 import os
 import csv
 import json
+import copy
 
 import git
 import pandas as pd
@@ -22,7 +23,9 @@ class GitAnalysis:
         :param repository_address: repository file address
         """
         self.repository = git.Repo(repository_address)
+        # retrieve other commits from issue tracker
         self.retrieve_other_commit_id_from_issue_tracker = retrieve_other_commit_id_from_issue_tracker
+        # if there is not label on the issue, consider them as other commits
         self.consider_issues_without_labels_as_other = consider_issues_without_labels_as_other
         self.tuple_keep_attribute = tuple_keep_attribute
         self.write_mode = write_mode
@@ -190,36 +193,118 @@ class GitAnalysis:
 
         iter_content = iter_commit_content_analyzer()
 
-        if flatten:
-            for line_tokens_list, commit_hex_sha, number_of_changes_value in iter_content:
-                pass
-        else:
-            for line_tokens_list, commit_hex_sha, number_of_changes_value in iter_content:
+        for line_tokens_list, commit_hex_sha, number_of_changes_value in iter_content:
 
-                for tokens_contents in line_tokens_list:
+            for tokens_contents in line_tokens_list:
 
-                    cod_line_number_value, line_content_value, tokens, file_name_value, lexer_name_value = \
-                        tokens_contents
-                    number_of_tokens_value = len(tokens)
-                    for token in tokens:
-                        line_counter += 1
-                        dictionary_data = {
-                            line_number: line_counter,
-                            hex_hash: commit_hex_sha,
-                            lexer_name: lexer_name_value,
-                            cod_line_number: str(cod_line_number_value),
-                            file_name: file_name_value,
-                            token_content: token[2].encode('utf-8'),
-                            token_type: str(token[1]),
+                cod_line_number_value, line_content_value, tokens, file_name_value, lexer_name_value = \
+                    tokens_contents
+                number_of_tokens_value = len(tokens)
+                for token in tokens:
+                    line_counter += 1
+                    dictionary_data = {
+                        line_number: line_counter,
+                        hex_hash: commit_hex_sha,
+                        lexer_name: lexer_name_value,
+                        cod_line_number: str(cod_line_number_value),
+                        file_name: file_name_value,
+                        token_content: token[2].encode('utf-8'),
+                        token_type: str(token[1]),
 
-                            line_content: line_content_value.encode('utf-8'),
-                            number_of_tokens: str(number_of_tokens_value),
-                            number_of_changes: str(number_of_changes_value)
-                        }
-                        self.log(dictionary_data)
-                        yield dictionary_data
+                        line_content: line_content_value.encode('utf-8'),
+                        number_of_tokens: str(number_of_tokens_value),
+                        number_of_changes: str(number_of_changes_value)
+                    }
+                    self.log(dictionary_data)
+                    yield dictionary_data
 
     # End Content Analysis
+
+    ################
+    # User Behaviour
+    ################
+    # Start Time Analysis Deleted Lines
+    def user_behaviour_deleted_lines_all_commits(self, result_file_address, output_format='parquet'):
+        user_behaviour_generator = self.iter_blame_detail_deleted_lines_fix_commits(self.repository.iter_commits()
+                                                                                    , get_dic_repr=True)
+        self.choose_writing_format(result_file_address=result_file_address,
+                                   data_generator=user_behaviour_generator,
+                                   output_format=output_format)
+
+    def user_behaviour_deleted_lines_all_commit_except_fix_commits(self, result_file_address,
+                                                                   fix_commits_file_address,
+                                                                   output_format='parquet'):
+        user_behaviour_generator = self.iter_blame_detail_deleted_lines_fix_commits(
+            self.iter_commit_except_fix(fix_commits_file_address=fix_commits_file_address
+                                        ), get_dic_repr=True)
+        self.choose_writing_format(result_file_address=result_file_address,
+                                   data_generator=user_behaviour_generator,
+                                   output_format=output_format)
+
+    def user_behaviour_deleted_lines_fix_commits(self, result_file_address, fix_commits_file_address,
+                                                 output_format='parquet'):
+        user_behaviour_generator = self.iter_blame_detail_deleted_lines_fix_commits(
+            self.iter_fix_commits(fix_commits_file_address=fix_commits_file_address), get_dic_repr=True)
+
+        self.choose_writing_format(result_file_address=result_file_address,
+                                   data_generator=user_behaviour_generator,
+                                   output_format=output_format)
+
+    # End Time Analysis Deleted Lines
+
+    # Start User Behavior Analysis Commits
+    def user_behavior_all_commits_except_fix_commits(self, result_file_address, fix_commits_file_address,
+                                                     output_format='parquet'):
+        user_behavior_generator = \
+            self.user_behavior_generator(self.iter_commit_except_fix(fix_commits_file_address))
+        self.choose_writing_format(result_file_address=result_file_address, data_generator=user_behavior_generator,
+                                   output_format=output_format)
+
+    def user_behavior_all_commits(self, result_file_address, output_format='parquet'):
+        user_behavior_generator = \
+            self.user_behavior_generator(self.repository.iter_commits())
+        self.choose_writing_format(result_file_address=result_file_address, data_generator=user_behavior_generator,
+                                   output_format=output_format)
+
+    def user_behavior_fix_commits(self, result_file_address, fix_commits_file_address, output_format='parquet'):
+        user_behavior_generator = \
+            self.user_behavior_generator(self.iter_fix_commits(fix_commits_file_address))
+        self.choose_writing_format(result_file_address=result_file_address, data_generator=user_behavior_generator,
+                                   output_format=output_format)
+
+    def user_behavior_generator(self, iter_commits):
+        field_names = ['author', 'author_email', 'authored_date', 'authored_time_zone_offset',
+                       'commit_sha', 'deleted_lines', 'added_lines', 'file_paths']
+        author, author_email, authored_date, author_tz_offset, commit_sha, deleted_lines, \
+            added_lines, file_path = field_names
+        line_counter = 0
+        for commit in iter_commits:
+            try:
+                dictionary_data = {
+                    author: commit.author.name.encode('utf-8'),
+                    author_email: commit.author.email.encode('utf-8'),
+                    authored_date: time.asctime(time.gmtime(commit.authored_date)),
+                    author_tz_offset: str(time.gmtime(commit.author_tz_offset).tm_hour) + ':' + str(time.gmtime(
+                        commit.author_tz_offset).tm_min),
+                    commit_sha: commit.hexsha
+                }
+                commit_spec = CommitSpec(commit=commit)
+                dic_affected_files = commit_spec.changed_files(affected_line=True)
+                for path, dic_affected_lines in dic_affected_files.iteritems():
+                    data = copy.deepcopy(dictionary_data)
+                    data[deleted_lines] = len(dic_affected_lines['added_line_number'])
+                    data[added_lines] = len(dic_affected_lines['deleted_line_number'])
+                    data[file_path] = path
+                    self.log(data)
+                    yield data
+            except GitDiffEmptyException as err:
+                print err
+                continue
+            except NoParentsCommitException as err:
+                print err
+                continue
+
+    # End User Behavior Analysis Commits
 
     ################
     # Time analyze
@@ -227,52 +312,60 @@ class GitAnalysis:
 
     # Start Time Analysis Deleted Lines
 
-    def iter_blame_detail_deleted_lines_fix_commits(self, iter_commits):
+    def iter_blame_detail_deleted_lines_fix_commits(self, iter_commits, get_dic_repr=False):
+
         def iterator():
             for fix_commit in iter_commits:
                 commit_spec = CommitSpec(fix_commit)
                 self.log(fix_commit)
                 try:
-                    blame_details_list = commit_spec.blame_content()
+                    blame_details_list = commit_spec.blame_content
+
                 except GitDiffEmptyException as err:
                     print err
                     continue
                 except NoParentsCommitException as err:
                     print err
                     continue
-
-                for blame_detail in blame_details_list:
-                    yield blame_detail
+                if get_dic_repr:
+                    for blame_detail in blame_details_list:
+                        list_dict_data = blame_detail.get_dictionary_representation()
+                        for data in list_dict_data:
+                            yield data
+                else:
+                    for blame_detail in blame_details_list:
+                        yield blame_detail
 
         return iterator()
 
     def time_analysis_deleted_lines_all_commits(self, result_file_address, output_format='parquet'):
         time_analysis_generator = \
-            self.time_analysis_deleted_lines_generator(iter_blame_detail=
-                                                       self.iter_blame_detail_deleted_lines_fix_commits(
-                                                           self.repository.iter_commits()))
-        self.choose_writing_format(result_file_address=result_file_address, data_generator=time_analysis_generator,
+            self.time_analysis_deleted_lines_generator(
+                iter_blame_detail=self.iter_blame_detail_deleted_lines_fix_commits(
+                    self.repository.iter_commits()))
+        self.choose_writing_format(result_file_address=result_file_address,
+                                   data_generator=time_analysis_generator,
                                    output_format=output_format)
 
-    def time_analysis_deleted_lines_all_commit_except_fix_commits(self, result_file_address, fix_commits_file_address,
+    def time_analysis_deleted_lines_all_commit_except_fix_commits(self, result_file_address,
+                                                                  fix_commits_file_address,
                                                                   output_format='parquet'):
         time_analysis_generator = \
-            self.time_analysis_deleted_lines_generator(iter_blame_detail=
-                                                       self.iter_blame_detail_deleted_lines_fix_commits(
-                                                           self.iter_commit_except_fix(
-                                                               fix_commits_file_address=
-                                                               fix_commits_file_address)))
-        self.choose_writing_format(result_file_address=result_file_address, data_generator=time_analysis_generator,
+            self.time_analysis_deleted_lines_generator(
+                iter_blame_detail=self.iter_blame_detail_deleted_lines_fix_commits(
+                    self.iter_commit_except_fix(fix_commits_file_address=fix_commits_file_address)))
+        self.choose_writing_format(result_file_address=result_file_address,
+                                   data_generator=time_analysis_generator,
                                    output_format=output_format)
 
     def time_analysis_deleted_lines_fix_commits(self, result_file_address, fix_commits_file_address,
                                                 output_format='parquet'):
         time_analysis_generator = \
-            self.time_analysis_deleted_lines_generator(iter_blame_detail=
-                                                       self.iter_blame_detail_deleted_lines_fix_commits(
-                                                           self.iter_fix_commits(fix_commits_file_address=
-                                                                                 fix_commits_file_address)))
-        self.choose_writing_format(result_file_address=result_file_address, data_generator=time_analysis_generator,
+            self.time_analysis_deleted_lines_generator(
+                iter_blame_detail=self.iter_blame_detail_deleted_lines_fix_commits(
+                    self.iter_fix_commits(fix_commits_file_address=fix_commits_file_address)))
+        self.choose_writing_format(result_file_address=result_file_address,
+                                   data_generator=time_analysis_generator,
                                    output_format=output_format)
 
     def time_analysis_deleted_lines_generator(self, iter_blame_detail):
@@ -289,8 +382,8 @@ class GitAnalysis:
                 author: commit.author.name.encode('utf-8'),
                 author_email: commit.author.email.encode('utf-8'),
                 authored_date: time.asctime(time.gmtime(commit.authored_date)),
-                author_tz_offset: str(time.gmtime(commit.author_tz_offset).tm_hour) + ':' +
-                str(time.gmtime(commit.author_tz_offset).tm_min),
+                author_tz_offset: str(time.gmtime(commit.author_tz_offset).tm_hour) + ':' + str(
+                    time.gmtime(commit.author_tz_offset).tm_min),
                 number_of_related_deleted_lines: str(blame_detail.number_of_related_lines),
                 total_deleted_lines: str(blame_detail.total_number_deleted),
                 total_added_lines: str(blame_detail.total_number_added)}
