@@ -8,6 +8,7 @@ import os
 import csv
 import json
 import copy
+from datetime import datetime
 
 import git
 import pandas as pd
@@ -18,7 +19,8 @@ import pyarrow.parquet as pq
 class GitAnalysis:
     def __init__(self, repository_address, retrieve_other_commit_id_from_issue_tracker,
                  consider_issues_without_labels_as_other=True,
-                 tuple_keep_attribute=None, write_mode='wb', log_flag=False):
+                 tuple_keep_attribute=None, write_mode='wb', log_flag=False,
+                 error_log_file_name='error_log.txt'):
         """
         :param repository_address: repository file address
         """
@@ -30,11 +32,27 @@ class GitAnalysis:
         self.tuple_keep_attribute = tuple_keep_attribute
         self.write_mode = write_mode
         self.log_flag = log_flag
+        self.error_log_file_name = error_log_file_name
 
     def log(self, log_str):
         if self.log_flag:
             print(log_str)
             print '*******************************************************'
+
+    def log_error(self, exception, starter=None, extra=None):
+
+        with open(self.error_log_file_name, 'a') as f_handler:
+            if starter:
+                f_handler.write(starter + os.linesep)
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+            f_handler.write(current_time + os.linesep)
+            if hasattr(exception, 'message') and exception:
+                f_handler.write(str(exception.message) + os.linesep)
+            elif exception:
+                f_handler.write(str(exception) + os.linesep)
+            if extra:
+                f_handler.write(extra + os.linesep)
+            f_handler.write('***********************' + os.linesep)
 
     # Start parquet writer
     def parquet_writer(self, result_file_address, data_generator, compression='gzip'):
@@ -174,8 +192,12 @@ class GitAnalysis:
         field_names = ['line_number', 'hex_hash', 'lexer_name', 'code_line_number', 'file_name', 'token_content',
                        'token_type', 'line_content', 'number_of_tokens', 'number_of_changes']
         line_number, hex_hash, lexer_name, cod_line_number, file_name, token_content, token_type, \
-        line_content, number_of_tokens, number_of_changes = field_names
+            line_content, number_of_tokens, number_of_changes = field_names
         line_counter = 0
+
+        def log_content_error(exception, commit_spec):
+            self.log_error(exception=exception, starter='Content - ' + self.repository.git_dir,
+                           extra=commit_spec.commit_hex_sha)
 
         def iter_commit_content_analyzer():
             for a_commit in iter_commit:
@@ -184,9 +206,11 @@ class GitAnalysis:
                     a_line_tokens_list, a_number_of_changes_value = a_commit_spec. \
                         content_analyzer(analyze_part=analyze_part)
                 except GitDiffEmptyException as err:
+                    log_content_error(err, commit_spec=a_commit_spec)
                     print err
                     continue
                 except NoParentsCommitException as err:
+                    log_content_error(err, commit_spec=a_commit_spec)
                     print err
                     continue
                 yield a_line_tokens_list, a_commit_spec.commit_hex_sha, a_number_of_changes_value
@@ -277,7 +301,11 @@ class GitAnalysis:
                        'commit_sha', 'deleted_lines', 'added_lines', 'file_paths']
         author, author_email, authored_date, author_tz_offset, commit_sha, deleted_lines, \
             added_lines, file_path = field_names
-        line_counter = 0
+
+        def log_user_behaviour_error(exception, a_commit_spec):
+            self.log_error(exception=exception, starter='User behavior - '+self.repository.git_dir,
+                           extra=a_commit_spec.commit_hex_sha)
+
         for commit in iter_commits:
             try:
                 dictionary_data = {
@@ -298,9 +326,11 @@ class GitAnalysis:
                     self.log(data)
                     yield data
             except GitDiffEmptyException as err:
+                log_user_behaviour_error(exception=err, a_commit_spec=commit_spec)
                 print err
                 continue
             except NoParentsCommitException as err:
+                log_user_behaviour_error(exception=err, a_commit_spec=commit_spec)
                 print err
                 continue
 
@@ -314,6 +344,10 @@ class GitAnalysis:
 
     def iter_blame_detail_deleted_lines_fix_commits(self, iter_commits, get_dic_repr=False):
 
+        def log_blame_error(exception, commit_spec):
+            self.log_error(exception=exception, starter='Blame - '+self.repository.git_dir,
+                           extra=commit_spec.commit_hex_sha)
+
         def iterator():
             for fix_commit in iter_commits:
                 commit_spec = CommitSpec(fix_commit)
@@ -322,9 +356,15 @@ class GitAnalysis:
                     blame_details_list = commit_spec.blame_content
 
                 except GitDiffEmptyException as err:
+                    log_blame_error(err, commit_spec=commit_spec)
                     print err
                     continue
                 except NoParentsCommitException as err:
+                    log_blame_error(err, commit_spec=commit_spec)
+                    print err
+                    continue
+                except KeyError as err:
+                    log_blame_error(err, commit_spec=commit_spec)
                     print err
                     continue
                 if get_dic_repr:
