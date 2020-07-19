@@ -14,10 +14,10 @@ class BaseConfig:
         self.repo_base_address = str(json_config['repo_base_address'])
         self.issue_base_address = str(json_config['issue_base_address'])
         self.output_folder = str(json_config['output_folder'])
-        self.retrieve_other_commit_id_from_issue_tracker = str(json_config[
-                                                                   'retrieve_other_commit_id_from_issue_tracker'])
-        self.consider_issues_without_labels_as_other = str(json_config['consider_issues_without_labels_as_other'])
-        self.log_flag = str(json_config['log_flag'])
+        self.retrieve_other_commit_id_from_issue_tracker = json_config[
+                                                                   'retrieve_other_commit_id_from_issue_tracker']
+        self.consider_issues_without_labels_as_other = json_config['consider_issues_without_labels_as_other']
+        self.log_flag = json_config['log_flag']
 
 
 class RepoIssueDetails:
@@ -36,6 +36,7 @@ class BatchRunner:
         self.error_log_file_name = error_log_file_name
         self.fix_label = 'Fix'
         self.non_fix_label = 'NonFix'
+        self.all_commits_label = 'AllCommits'
 
     def log(self, log_str):
         if self.log_flag:
@@ -130,10 +131,9 @@ class BatchRunner:
         # End initial setup
         file_name = str.join("_", [str.capitalize(base_config.language_label),
                                    str.capitalize(repo_issue_details.repo_name)])
-        fix_file_name = os.path.join(base_config.output_folder, str.join("_", [file_name,
-                                                                               self.fix_label + '.csv']))
-        non_fix_file_name = os.path.join(base_config.output_folder, str.join("_", [file_name,
-                                                                                   self.non_fix_label + '.csv']))
+        fix_file_name = os.path.join(output_folder, str.join("_", [file_name, self.fix_label + '.csv']))
+        non_fix_file_name = os.path.join(output_folder, str.join("_", [file_name, self.non_fix_label + '.csv']))
+        all_commits_file_name = os.path.join(output_folder, str.join("_", [file_name, self.all_commits_label + '.csv']))
 
         self.log('+++++++++++++++++++++')
         self.log('User behaviour - fix commits ' + repo_issue_details.repo_name)
@@ -144,12 +144,18 @@ class BatchRunner:
                                                               output_format='csv')
 
         self.log('+++++++++++++++++++++')
-        self.log('User behaviour - non-fix commits' + repo_issue_details.repo_name)
+        self.log('User behaviour - non-fix commits ' + repo_issue_details.repo_name)
         self.log('+++++++++++++++++++++')
 
         git_analysis.user_behavior_all_commits_except_fix_commits(result_file_address=non_fix_file_name,
                                                                   fix_commits_file_address=fix_commits_file_address,
                                                                   output_format='csv')
+        self.log('+++++++++++++++++++++')
+        self.log('User behaviour - all commits ' + repo_issue_details.repo_name)
+        self.log('+++++++++++++++++++++')
+
+        git_analysis.user_behavior_all_commits(result_file_address=all_commits_file_name,
+                                               output_format='csv')
 
         self.log('#####################')
         self.log('End ' + repo_issue_details.repo_name)

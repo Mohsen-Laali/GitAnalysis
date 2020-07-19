@@ -20,7 +20,7 @@ class GitAnalysis:
     def __init__(self, repository_address, retrieve_other_commit_id_from_issue_tracker,
                  consider_issues_without_labels_as_other=True,
                  tuple_keep_attribute=None, write_mode='wb', log_flag=False,
-                 error_log_file_name='error_log.txt'):
+                 error_log_file_name='error_log.txt', fix_keyword='fix'):
         """
         :param repository_address: repository file address
         """
@@ -33,11 +33,13 @@ class GitAnalysis:
         self.write_mode = write_mode
         self.log_flag = log_flag
         self.error_log_file_name = error_log_file_name
+        # search keyword in all commit messages and consider the returning commit as a fix commit
+        self.fix_keyword = fix_keyword
 
     def log(self, log_str):
         if self.log_flag:
             print(log_str)
-            print '*******************************************************'
+            print('*******************************************************')
 
     def log_error(self, exception, starter=None, extra=None):
 
@@ -101,6 +103,40 @@ class GitAnalysis:
         else:
             self.log('Writing format is not supported, you can only use either of parquet or csv')
 
+    # find commits with a keyword in their commit's message
+    def search_commit(self, keyword):
+        # pretty='format:%H' only print sha
+        # i=True ignore a case
+        # F=True don't interpret as a regular expression
+        # space added before the keyword to not confuse with a keyword in middle of a word
+        # e.g. avoid 'suffix' when searching for 'fix'
+        # log_commit_ids = self.repository.git.log(grep="' "+keyword+"'", pretty='format:%H', i=True, F=True)
+        keyword = ' ' + keyword
+        log_commit_ids = self.repository.git.log(grep=keyword, pretty='format:%H', i=True, F=True)
+        if len(log_commit_ids) > 0:
+            similar_commit_ids = {log.strip() for log in log_commit_ids.split(os.linesep)}
+        else:
+            similar_commit_ids = {}
+        return similar_commit_ids
+
+    # get all fix commits as a set of commit's sha string
+    def get_fix_commit_sha(self, fix_file_address, tuple_keep_filter_attribute):
+        set_of_fix_commits = set()
+        # built an iterator over fix commits
+        # Keep=True to keep the fix label
+        # if the filter attribute is not there ignore the line
+        for git_hub_fix_commit in IO.read_issue_commits(file_address=fix_file_address,
+                                                        tuple_keep_filter_attribute=tuple_keep_filter_attribute,
+                                                        keep=True, ignore_field_without_value=True):
+            issue_fix_commit_ids = git_hub_fix_commit.get_fix_commits()
+            set_of_fix_commits.update(issue_fix_commit_ids)
+        # check if fix keyword is provided
+        if self.fix_keyword:
+            # retrieve all commits with fix keyword
+            set_fix_commits_with_search_keyword = self.search_commit(keyword=self.fix_keyword)
+            set_of_fix_commits.update(set_fix_commits_with_search_keyword)
+        return set_of_fix_commits
+
     # Start Commit Iterator
     def iter_fix_commits(self, fix_commits_file_address):
         # def iterator(file_address):
@@ -111,15 +147,9 @@ class GitAnalysis:
         #             yield commit
 
         def iterator(file_address, tuple_keep_attribute):
-            set_of_fix_commits = set()
-            # built an iterator over fix commits
-            # Keep=True to keep the fix label
-            # if the filter attribute is not there ignore the line
-            for git_hub_fix_commit in IO.read_issue_commits(file_address,
-                                                            tuple_keep_filter_attribute=tuple_keep_attribute,
-                                                            keep=True, ignore_field_without_value=True):
-                issue_fix_commit_ids = git_hub_fix_commit.get_fix_commits()
-                map(set_of_fix_commits.add, issue_fix_commit_ids)
+            # getting all fix commit's sha
+            set_of_fix_commits = self.get_fix_commit_sha(fix_file_address=file_address,
+                                                         tuple_keep_filter_attribute=tuple_keep_attribute)
 
             for commit_id in set_of_fix_commits:
                 commit = self.repository.commit(commit_id)
@@ -145,18 +175,22 @@ class GitAnalysis:
                                                             ignore_field_without_value=
                                                             not consider_issues_without_labels_as_other):
                     issue_commit_ids = git_hub_commit.get_fix_commits()
-                    map(set_of_other_commits.add, issue_commit_ids)
-
+                    set_of_other_commits.update(issue_commit_ids)
+                # get fix commit's sha
+                set_of_fix_commits = self.get_fix_commit_sha(fix_file_address=fix_commits_file_address,
+                                                             tuple_keep_filter_attribute=tuple_keep_attribute)
+                # remove fix commit's sha from other set
+                set_of_other_commits.difference_update(set_of_fix_commits)
                 for commit_id in set_of_other_commits:
                     commit = self.repository.commit(commit_id)
                     yield commit
             else:
-                # read fix commits
-                for fix_commit in iter_fix_commits:
-                    list_fix_commit_sha.append(fix_commit.hexsha)
+                # get fix commit's sha
+                set_of_fix_commits = self.get_fix_commit_sha(fix_file_address=fix_commits_file_address,
+                                                             tuple_keep_filter_attribute=tuple_keep_attribute)
                 # read all commits and check if they are not fix commits
                 for commit in self.repository.iter_commits():
-                    if commit.hexsha not in list_fix_commit_sha:
+                    if commit.hexsha not in set_of_fix_commits:
                         yield commit
                     yield commit
 
@@ -192,7 +226,7 @@ class GitAnalysis:
         field_names = ['line_number', 'hex_hash', 'lexer_name', 'code_line_number', 'file_name', 'token_content',
                        'token_type', 'line_content', 'number_of_tokens', 'number_of_changes']
         line_number, hex_hash, lexer_name, cod_line_number, file_name, token_content, token_type, \
-            line_content, number_of_tokens, number_of_changes = field_names
+        line_content, number_of_tokens, number_of_changes = field_names
         line_counter = 0
 
         def log_content_error(exception, commit_spec):
@@ -303,17 +337,16 @@ class GitAnalysis:
             added_lines, file_path = field_names
 
         def log_user_behaviour_error(exception, a_commit_spec):
-            self.log_error(exception=exception, starter='User behavior - '+self.repository.git_dir,
+            self.log_error(exception=exception, starter='User behavior - ' + self.repository.git_dir,
                            extra=a_commit_spec.commit_hex_sha)
 
         for commit in iter_commits:
             try:
                 dictionary_data = {
                     author: commit.author.name.encode('utf-8'),
-                    author_email: commit.author.email.encode('utf-8'),
-                    authored_date: time.asctime(time.gmtime(commit.authored_date)),
-                    author_tz_offset: str(time.gmtime(commit.author_tz_offset).tm_hour) + ':' + str(time.gmtime(
-                        commit.author_tz_offset).tm_min),
+                    author_email: commit.author.email.encode('utf-8') if commit.author.email else '',
+                    authored_date: time.asctime(time.gmtime(commit.authored_date - commit.author_tz_offset)),
+                    author_tz_offset: CommitSpec.time_zone_to_utc(seconds=commit.author_tz_offset),
                     commit_sha: commit.hexsha
                 }
                 commit_spec = CommitSpec(commit=commit)
@@ -345,7 +378,7 @@ class GitAnalysis:
     def iter_blame_detail_deleted_lines_fix_commits(self, iter_commits, get_dic_repr=False):
 
         def log_blame_error(exception, commit_spec):
-            self.log_error(exception=exception, starter='Blame - '+self.repository.git_dir,
+            self.log_error(exception=exception, starter='Blame - ' + self.repository.git_dir,
                            extra=commit_spec.commit_hex_sha)
 
         def iterator():
@@ -421,9 +454,8 @@ class GitAnalysis:
                 line_number: line_counter,
                 author: commit.author.name.encode('utf-8'),
                 author_email: commit.author.email.encode('utf-8'),
-                authored_date: time.asctime(time.gmtime(commit.authored_date)),
-                author_tz_offset: str(time.gmtime(commit.author_tz_offset).tm_hour) + ':' + str(
-                    time.gmtime(commit.author_tz_offset).tm_min),
+                authored_date: time.asctime(time.gmtime(commit.authored_date - commit.author_tz_offset)),
+                author_tz_offset: CommitSpec.time_zone_to_utc(seconds=commit.author_tz_offset),
                 number_of_related_deleted_lines: str(blame_detail.number_of_related_lines),
                 total_deleted_lines: str(blame_detail.total_number_deleted),
                 total_added_lines: str(blame_detail.total_number_added)}
@@ -463,9 +495,8 @@ class GitAnalysis:
                 line_number: line_counter,
                 author: commit.author.name.encode('utf-8'),
                 author_email: commit.author.email.encode('utf-8'),
-                authored_date: time.asctime(time.gmtime(commit.authored_date)),
-                author_tz_offset: str(time.gmtime(commit.author_tz_offset).tm_hour) + ':' + str(time.gmtime(
-                    commit.author_tz_offset).tm_min)}
+                authored_date: time.asctime(time.gmtime(commit.authored_date - commit.author_tz_offset)),
+                author_tz_offset: CommitSpec.time_zone_to_utc(seconds=commit.author_tz_offset)}
             self.log(dictionary_data)
             yield dictionary_data
 

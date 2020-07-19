@@ -3,6 +3,7 @@ import time
 import copy
 
 from GitAnalysis.lexical_analyzer import LexicalAnalyzer
+
 from unidiff import PatchSet
 from cStringIO import StringIO
 from pygments.util import ClassNotFound
@@ -24,6 +25,16 @@ class CommitSpec:
         self.commit = commit
         self.commit_hex_sha = self.commit.hexsha
         self.pre_commit_hex_sha = self.commit_hex_sha + '~1'
+
+    @staticmethod
+    def time_zone_to_utc(seconds):
+        utc = "+"
+        if seconds > 0:
+            utc = '-'
+        seconds = abs(seconds)
+        hours, minutes = seconds // 3600, seconds // 60 % 60
+        utc += str(hours) + ':' + str(minutes)
+        return utc
 
     def diff_commit_pre_version(self, **kwargs):
         if self.commit.parents:
@@ -183,16 +194,16 @@ class BlameDetail:
             file_path__line_number_content = field_names
 
         dictionary_data = {
-                    author: self.blame_commit.author.name.encode('utf-8'),
-                    author_email: self.blame_commit.author.email.encode('utf-8'),
-                    authored_date: time.asctime(time.gmtime(self.blame_commit.authored_date)),
-                    author_tz_offset: str(time.gmtime(self.blame_commit.author_tz_offset).tm_hour) + ':' +
-                    str(time.gmtime(self.blame_commit.author_tz_offset).tm_min),
-                    number_of_related_deleted_lines: str(self.number_of_related_lines),
-                    total_deleted_lines: str(self.total_number_deleted),
-                    total_added_lines: str(self.total_number_added),
-                    fix_commit_sha: self.fix_commit_hex_sha,
-                    blame_commit_sha: self.blame_commit.hexsha
+                author: self.blame_commit.author.name.encode('utf-8'),
+                author_email: self.blame_commit.author.email.encode('utf-8') if self.blame_commit.author.email else '',
+                authored_date: time.asctime(time.gmtime(self.blame_commit.authored_date -
+                                                        self.blame_commit.author_tz_offset)),
+                author_tz_offset: CommitSpec.time_zone_to_utc(seconds=self.blame_commit.author_tz_offset),
+                number_of_related_deleted_lines: str(self.number_of_related_lines),
+                total_deleted_lines: str(self.total_number_deleted),
+                total_added_lines: str(self.total_number_added),
+                fix_commit_sha: self.fix_commit_hex_sha,
+                blame_commit_sha: self.blame_commit.hexsha
         }
         if flatted:
             list_data = []
